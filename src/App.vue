@@ -1,34 +1,58 @@
 <template>
-  <q-calendar-month
-    v-model="selectedDate"
-    :now="selectedDate"
-    @click-day="onClickDay"
-  >
-    <template #day="{ scope: { timestamp } }">
-      <template
-        v-for="record in clockinHistoryMap[timestamp.date]"
-        :key="record.id"
+  <div class="container">
+    <div>
+      <q-calendar-month
+        v-model="selectedDate"
+        :now="selectedDate"
+        @click-day="onClickDay"
       >
-        <div class="record">
-          <div class="record-time bg-green">{{ record.time }}</div>
-          <div class="record-time bg-orange">{{ record.time2 }}</div>
-        </div>
-      </template>
-    </template>
-  </q-calendar-month>
-  <div class="time-wrapper">
-    <q-time class="time" v-model="time" />
-    <q-time class="time" v-model="time2" />
-  </div>
-  <div class="button-wrapper">
-    <q-btn class="button" color="primary" label="保存时间" @click="saveTime" />
-    <q-btn class="button" color="red" label="清除该天" @click="clearTime" />
-  </div>
-  <div style="display: flex; justify-content: center">
-    <div class="notify">
-      本月总打卡时长{{ accmulatedHours[0] }}小时，接下来每天至少需要打卡{{
-        accmulatedHours[1]
-      }}小时
+        <template #day="{ scope: { timestamp } }">
+          <template
+            v-for="record in clockinHistoryMap[timestamp.date]"
+            :key="record.id"
+          >
+            <div class="record">
+              <div class="record-time bg-green">{{ record.time }}</div>
+              <div class="record-time bg-orange">{{ record.time2 }}</div>
+            </div>
+          </template>
+        </template>
+      </q-calendar-month>
+    </div>
+
+    <div class="wrapper">
+      <div class="time-wrapper">
+        <q-time class="time" v-model="time" />
+        <q-time color="red" class="time" v-model="time2" />
+      </div>
+      <div class="button-wrapper">
+        <q-btn
+          class="button"
+          color="primary"
+          label="保存时间"
+          @click="saveTime"
+        />
+        <q-btn class="button" color="red" label="清除该天" @click="clearTime" />
+      </div>
+      <div class="slider-wrapper">
+        <div class="notify">请假天数：{{ dayOff }}</div>
+        <q-slider
+          style="margin-top: 10px"
+          v-model="dayOff"
+          color="blue"
+          :min="0"
+          :max="15"
+          :step="0.5"
+          @change="changeDay"
+        />
+      </div>
+    </div>
+    <div style="display: flex; justify-content: center">
+      <div class="notify">
+        本月总打卡时长{{ accmulatedHours[0] }}小时，接下来每天至少需要打卡{{
+          accmulatedHours[1]
+        }}小时
+      </div>
     </div>
   </div>
 </template>
@@ -36,6 +60,7 @@
 <script setup lang="ts">
 import { today } from '@quasar/quasar-ui-qcalendar/src/index.js';
 import { computed, ref } from 'vue';
+let dayOff = ref(0);
 let selectedDate = ref(today());
 let time = ref('');
 let time2 = ref('');
@@ -45,6 +70,14 @@ if (history) {
   clockinHistory = ref(JSON.parse(history));
 } else {
   clockinHistory = ref([]);
+}
+function initializeDay() {
+  dayOff.value = localStorage.getItem('dayOff')
+    ? parseFloat(localStorage.getItem('dayOff'))
+    : 0;
+}
+function changeDay() {
+  localStorage.setItem('dayOff', dayOff.value.toString());
 }
 function initializeTime() {
   const index = clockinHistory.value.findIndex(
@@ -114,6 +147,7 @@ const accmulatedHours = computed(() => {
     }
   });
   const remainingDays = getRemainingDaysInMonth();
+  total += dayOff.value * 8 * 60;
   let remainingHours = (240 * 60 - total) / remainingDays / 60.0;
   remainingHours = Math.round(remainingHours * 100) / 100;
   return [Math.round((total / 60) * 100) / 100, Math.max(0, remainingHours)];
@@ -141,27 +175,45 @@ const accmulatedHours = computed(() => {
   }
 });
 initializeTime();
+initializeDay();
 defineOptions({
   name: 'App',
 });
 </script>
 
 <style lang="scss" scoped>
+.slider-wrapper {
+  padding-left: 10px;
+  padding-right: 10px;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  margin-top: 40px;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  justify-content: space-between;
+}
+
 .record-time {
-  margin-top: 10px;
   display: flex;
   justify-content: center;
   align-items: center;
   height: 100%;
   font-size: 12px;
-  border-radius: 2px;
 }
 .bg-green {
-  background: green;
+  color: white;
+  background: #1976d2 !important;
 }
 
 .bg-orange {
-  background: orange;
+  color: white;
+  background: #f44336 !important;
 }
 
 .record {
@@ -174,7 +226,6 @@ defineOptions({
   }
   display: flex;
   justify-content: center;
-  margin-top: 110px;
 }
 .time {
   align-self: center;
@@ -191,7 +242,6 @@ defineOptions({
   align-self: center;
 }
 .notify {
-  position: absolute;
   bottom: 20px;
   font-size: 24px;
   text-align: center;
