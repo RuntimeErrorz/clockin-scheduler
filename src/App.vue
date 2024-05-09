@@ -1,7 +1,36 @@
 <template>
   <div class="container">
     <div>
+      <div class="btn-row">
+        <q-btn
+          no-caps
+          class="button"
+          style="margin: 2px"
+          color="primary"
+          @click="calendar.prev()"
+        >
+          &lt; Prev
+        </q-btn>
+        <q-btn
+          no-caps
+          class="button"
+          style="margin: 2px"
+          @click="calendar.moveToToday()"
+        >
+          Today
+        </q-btn>
+        <q-btn
+          no-caps
+          class="button"
+          style="margin: 2px"
+          color="red"
+          @click="calendar.next()"
+        >
+          Next &gt;
+        </q-btn>
+      </div>
       <q-calendar-month
+        ref="calendar"
         v-model="selectedDate"
         :now="selectedDate"
         @click-day="onClickDay"
@@ -19,7 +48,6 @@
         </template>
       </q-calendar-month>
     </div>
-
     <div class="wrapper">
       <div class="time-wrapper">
         <q-time class="time" v-model="time" />
@@ -35,10 +63,12 @@
         <q-btn class="button" color="red" label="清除该天" @click="clearTime" />
       </div>
       <div class="slider-wrapper">
-        <div class="notify">请假天数：{{ dayOff }}</div>
+        <div class="notify">
+          {{ selectedMonth }} 请假天数：{{ dayOffModel }}
+        </div>
         <q-slider
           style="margin-top: 10px"
-          v-model="dayOff"
+          v-model="dayOffModel"
           color="blue"
           :min="0"
           :max="15"
@@ -48,36 +78,58 @@
       </div>
     </div>
     <div style="display: flex; justify-content: center">
-      <div class="notify">
-        本月总打卡时长{{ accmulatedHours[0] }}小时，接下来每天至少需要打卡{{
-          accmulatedHours[1]
-        }}小时
-      </div>
+      <div class="notify">{{ accmulatedHours }}</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { today } from '@quasar/quasar-ui-qcalendar/src/index.js';
-import { computed, ref } from 'vue';
-let dayOff = ref(0);
+import { computed, ref, watch } from 'vue';
+let calendar = ref(null);
 let selectedDate = ref(today());
 let time = ref('');
 let time2 = ref('');
-let clockinHistory;
+let clockinHistory, dayoffHistory;
 const history = localStorage.getItem('clockinHistory');
 if (history) {
   clockinHistory = ref(JSON.parse(history));
 } else {
   clockinHistory = ref([]);
 }
-function initializeDay() {
-  dayOff.value = localStorage.getItem('dayOff')
-    ? parseFloat(localStorage.getItem('dayOff'))
-    : 0;
+dayoffHistory = localStorage.getItem('dayoffHistory');
+if (dayoffHistory) {
+  dayoffHistory = ref(JSON.parse(dayoffHistory));
+} else {
+  dayoffHistory = ref([]);
 }
+let dayOffModel = ref(0);
+const selectedMonth = computed(() => selectedDate.value.substring(0, 7));
+const dayOff = computed(() => {
+  return (
+    dayoffHistory.value.find(
+      (record: { month: string }) =>
+        record.month === selectedDate.value.substring(0, 7)
+    )?.dayOff || 0
+  );
+});
+dayOffModel.value = dayOff.value;
+watch(dayOff, () => {
+  dayOffModel.value = dayOff.value;
+});
 function changeDay() {
-  localStorage.setItem('dayOff', dayOff.value.toString());
+  const index = dayoffHistory.value.findIndex(
+    (record: { month: string }) => record.month === selectedMonth.value
+  );
+  if (index > -1) {
+    dayoffHistory.value[index].dayOff = dayOffModel.value;
+  } else {
+    dayoffHistory.value.push({
+      month: selectedMonth,
+      dayOff: dayOffModel.value,
+    });
+  }
+  localStorage.setItem('dayoffHistory', JSON.stringify(dayoffHistory.value));
 }
 function initializeTime() {
   const index = clockinHistory.value.findIndex(
@@ -106,7 +158,6 @@ const clockinHistoryMap = computed(() => {
   clockinHistory.value.forEach((record: { date: string | number }) => {
     (map[record.date] = map[record.date] || []).push(record);
   });
-  console.log(map);
   return map;
 });
 function saveTime() {
@@ -134,12 +185,13 @@ function clearTime() {
   initializeTime();
 }
 const accmulatedHours = computed(() => {
-  const currentMonth = new Date().getMonth() + 1;
   let total = 0;
   clockinHistory.value.forEach((record) => {
-    const recordDate = new Date(record.date);
-    const recordMonth = recordDate.getMonth() + 1;
-    if (recordMonth === currentMonth && record.time && record.time2) {
+    if (
+      record.date.substring(0, 7) === selectedMonth.value &&
+      record.time &&
+      record.time2
+    ) {
       const time = record.time.split(':');
       const time2 = record.time2.split(':');
       total += (parseInt(time2[0]) - parseInt(time[0])) * 60;
@@ -150,7 +202,12 @@ const accmulatedHours = computed(() => {
   total += dayOff.value * 8 * 60;
   let remainingHours = (240 * 60 - total) / remainingDays / 60.0;
   remainingHours = Math.round(remainingHours * 100) / 100;
-  return [Math.round((total / 60) * 100) / 100, Math.max(0, remainingHours)];
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  return currentMonth != selectedMonth.value
+    ? `${selectedMonth.value} 已打卡${Math.round((total / 60) * 100) / 100}小时`
+    : `${selectedMonth.value} 已打卡${
+        Math.round((total / 60) * 100) / 100
+      }小时，之后每天至少需打卡${Math.max(0, remainingHours)}小时`;
 
   function getRemainingDaysInMonth() {
     const currentDate = new Date();
@@ -175,28 +232,33 @@ const accmulatedHours = computed(() => {
   }
 });
 initializeTime();
-initializeDay();
 defineOptions({
   name: 'App',
 });
 </script>
 
 <style lang="scss" scoped>
-.slider-wrapper {
-  padding-left: 10px;
-  padding-right: 10px;
-  justify-content: center;
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  margin-top: 40px;
-}
-
 .container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   justify-content: space-between;
+}
+.btn-row {
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  padding-top: 4px;
+  padding-bottom: 10px;
+}
+.slider-wrapper {
+  padding-left: 20px;
+  padding-right: 20px;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  margin-top: 40px;
 }
 
 .record-time {
