@@ -1,7 +1,7 @@
 <template>
   <div class="container">
-    <div>
-      <div class="btn-row">
+    <div class="calendar-wrapper">
+      <div class="calendar-button">
         <q-btn
           no-caps
           class="button"
@@ -48,10 +48,10 @@
         </template>
       </q-calendar-month>
     </div>
-    <div class="wrapper">
+    <div class="input-wrapper">
       <div class="time-wrapper">
-        <q-time class="time" v-model="time" />
-        <q-time color="red" class="time" v-model="time2" />
+        <q-time v-model="time" />
+        <q-time color="red" v-model="time2" />
       </div>
       <div class="button-wrapper">
         <q-btn
@@ -63,11 +63,7 @@
         <q-btn class="button" color="red" label="清除该天" @click="clearTime" />
       </div>
       <div class="slider-wrapper">
-        <div class="notify">
-          {{ selectedMonth }} 请假天数：{{ dayOffModel }}
-        </div>
         <q-slider
-          style="margin-top: 10px"
           v-model="dayOffModel"
           color="blue"
           :min="0"
@@ -77,9 +73,7 @@
         />
       </div>
     </div>
-    <div style="display: flex; justify-content: center">
-      <div class="notify">{{ accmulatedHours }}</div>
-    </div>
+    <div class="notify">{{ accmulatedHours }}</div>
   </div>
 </template>
 
@@ -201,13 +195,15 @@ const accmulatedHours = computed(() => {
   const remainingDays = getRemainingDaysInMonth();
   total += dayOff.value * 8 * 60;
   let remainingHours = (240 * 60 - total) / remainingDays / 60.0;
-  remainingHours = Math.round(remainingHours * 100) / 100;
+  remainingHours = Math.round(remainingHours * 10) / 10;
   const currentMonth = new Date().toISOString().substring(0, 7);
   return currentMonth != selectedMonth.value
-    ? `${selectedMonth.value} 已打卡${Math.round((total / 60) * 100) / 100}小时`
-    : `${selectedMonth.value} 已打卡${
-        Math.round((total / 60) * 100) / 100
-      }小时，之后每天至少需打卡${Math.max(0, remainingHours)}小时`;
+    ? `${selectedMonth.value}：已请假 ${dayOffModel.value} 天，已打卡 ${
+        Math.round((total / 60) * 10) / 10
+      } 小时`
+    : `${selectedMonth.value}：已请假 ${dayOffModel.value} 天，已打卡 ${
+        Math.round((total / 60) * 10) / 10
+      } 小时，之后每天需打卡 ${Math.max(0, remainingHours)} 小时`;
 
   function getRemainingDaysInMonth() {
     const currentDate = new Date();
@@ -243,73 +239,65 @@ defineOptions({
   flex-direction: column;
   height: 100vh;
   justify-content: space-between;
-}
-.btn-row {
-  justify-content: center;
-  align-items: center;
-  display: flex;
-  padding-top: 4px;
-  padding-bottom: 10px;
-}
-.slider-wrapper {
-  padding-left: 20px;
-  padding-right: 20px;
-  justify-content: center;
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  margin-top: 40px;
-}
+  .calendar-wrapper {
+    .calendar-button {
+      justify-content: center;
+      display: flex;
+      margin-bottom: 10px;
+    }
+    .record-time {
+      display: flex;
+      justify-content: center;
+      font-size: 12px;
+      color: white;
+    }
+    .bg-green {
+      background: #1976d2 !important;
+    }
 
-.record-time {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100%;
-  font-size: 12px;
-}
-.bg-green {
-  color: white;
-  background: #1976d2 !important;
-}
-
-.bg-orange {
-  color: white;
-  background: #f44336 !important;
-}
-
-.record {
-  justify-content: center;
-  cursor: pointer;
-}
-.time-wrapper {
-  > *:not(:first-child) {
-    margin-left: 20px;
+    .bg-orange {
+      background: #f44336 !important;
+    }
   }
-  display: flex;
-  justify-content: center;
-}
-.time {
-  align-self: center;
-}
-.button-wrapper {
-  > *:not(:first-child) {
-    margin-left: 20px;
+  .input-wrapper {
+    .time-wrapper {
+      > *:not(:first-child) {
+        margin-left: 20px;
+      }
+      display: flex;
+      justify-content: center;
+    }
+    .button-wrapper {
+      > *:not(:first-child) {
+        margin-left: 20px;
+      }
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .slider-wrapper {
+      margin-left: 20px;
+      margin-right: 20px;
+      margin-top: 8px;
+      margin-bottom: -20px;
+    }
   }
-  margin-top: 20px;
-  display: flex;
-  justify-content: center;
-}
-.button {
-  align-self: center;
-}
-.notify {
-  bottom: 20px;
-  font-size: 24px;
-  text-align: center;
+  .notify {
+    display: flex;
+    justify-content: center;
+    font-size: 24px;
+    text-align: center;
+  }
 }
 .q-time {
   min-width: 192px;
   max-width: 192px;
+}
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
 }
 </style>
