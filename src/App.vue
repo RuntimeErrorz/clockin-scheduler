@@ -2,30 +2,13 @@
   <div class="container">
     <div class="calendar-wrapper">
       <div class="calendar-button">
-        <q-btn
-          no-caps
-          class="button"
-          style="margin: 2px"
-          color="primary"
-          @click="calendar.prev()"
-        >
+        <q-btn no-caps class="button" color="red" @click="calendar.prev()">
           &lt; Prev
         </q-btn>
-        <q-btn
-          no-caps
-          class="button"
-          style="margin: 2px"
-          @click="calendar.moveToToday()"
-        >
+        <q-btn no-caps class="button" @click="calendar.moveToToday()">
           Today
         </q-btn>
-        <q-btn
-          no-caps
-          class="button"
-          style="margin: 2px"
-          color="red"
-          @click="calendar.next()"
-        >
+        <q-btn no-caps class="button" color="primary" @click="calendar.next()">
           Next &gt;
         </q-btn>
       </div>
@@ -36,195 +19,214 @@
         @click-day="onClickDay"
       >
         <template #day="{ scope: { timestamp } }">
-          <template
-            v-for="record in clockinHistoryMap[timestamp.date]"
-            :key="record.id"
-          >
-            <div class="record">
-              <div class="record-time bg-green">{{ record.time }}</div>
-              <div class="record-time bg-orange">{{ record.time2 }}</div>
-            </div>
-          </template>
+          <div v-if="getDayOff(timestamp.date) === 1" class="blue-dot"></div>
+          <div
+            v-else-if="getDayOff(timestamp.date) === 0.5"
+            class="red-dot"
+          ></div>
+          <div
+            v-else-if="getDayOff(timestamp.date) === 0"
+            class="grey-dot"
+          ></div>
+          <div class="record-time bg-red">
+            {{ clockinHistory[timestamp.date]?.timein }}
+          </div>
+          <div class="record-time bg-blue">
+            {{ clockinHistory[timestamp.date]?.timeout }}
+          </div>
         </template>
       </q-calendar-month>
     </div>
     <div class="input-wrapper">
       <div class="time-wrapper">
-        <q-time v-model="time" />
-        <q-time color="red" v-model="time2" />
+        <q-time color="red" v-model="timein" />
+        <q-time v-model="timeout" />
       </div>
       <div class="button-wrapper">
+        <q-btn class="button" color="red" label="清除时间" @click="clearTime" />
+        <q-btn class="button" @click="initializeDayOff">管理休假</q-btn>
         <q-btn
           class="button"
           color="primary"
           label="保存时间"
           @click="saveTime"
         />
-        <q-btn class="button" color="red" label="清除该天" @click="clearTime" />
-      </div>
-      <div class="slider-wrapper">
-        <q-slider
-          v-model="dayOffModel"
-          color="blue"
-          :min="0"
-          :max="15"
-          :step="0.5"
-          @change="changeDay"
-        />
       </div>
     </div>
-    <div class="notify">{{ accmulatedHours }}</div>
+    <div class="notify">{{ monthClockinInfo }}</div>
   </div>
+  <q-dialog v-model="dayOffDialog">
+    <q-card style="min-width: 350px">
+      <q-card-section align="center">
+        <div class="text-h6">{{ selectedDate }}</div>
+      </q-card-section>
+      <q-card-section align="center" class="q-pt-none">
+        <q-option-group
+          inline
+          :options="dayOffOptions"
+          type="radio"
+          v-model="dayOffDay"
+        />
+        <q-input label="备注" v-model="dayoffReason" dense autofocus />
+      </q-card-section>
+      <q-card-actions align="around" class="text-primary">
+        <q-btn
+          @click="clearDayOff"
+          color="red"
+          flat
+          label="清除休假"
+          v-close-popup
+        />
+        <q-btn @click="addDayOff" flat label="确认" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup lang="ts">
 import { today } from '@quasar/quasar-ui-qcalendar/src/index.js';
-import { computed, ref, watch } from 'vue';
-let calendar = ref(null);
-let selectedDate = ref(today());
-let time = ref('');
-let time2 = ref('');
-let clockinHistory, dayoffHistory;
-const history = localStorage.getItem('clockinHistory');
-if (history) {
-  clockinHistory = ref(JSON.parse(history));
-} else {
-  clockinHistory = ref([]);
-}
-dayoffHistory = localStorage.getItem('dayoffHistory');
-if (dayoffHistory) {
-  dayoffHistory = ref(JSON.parse(dayoffHistory));
-} else {
-  dayoffHistory = ref([]);
-}
-let dayOffModel = ref(0);
-const selectedMonth = computed(() => selectedDate.value.substring(0, 7));
-const dayOff = computed(() => {
-  return (
-    dayoffHistory.value.find(
-      (record: { month: string }) =>
-        record.month === selectedDate.value.substring(0, 7)
-    )?.dayOff || 0
-  );
-});
-dayOffModel.value = dayOff.value;
-watch(dayOff, () => {
-  dayOffModel.value = dayOff.value;
-});
-function changeDay() {
-  const index = dayoffHistory.value.findIndex(
-    (record: { month: string }) => record.month === selectedMonth.value
-  );
-  if (index > -1) {
-    dayoffHistory.value[index].dayOff = dayOffModel.value;
+import { computed, ref } from 'vue';
+type ClockinRecord = {
+  timein?: string;
+  timeout?: string;
+  dayOff?: number;
+  dayoffReason?: string;
+};
+
+type ClockinHistory = {
+  [date: string]: ClockinRecord;
+};
+
+const calendar = ref(null);
+const selectedDate = ref(today());
+const timein = ref('');
+const timeout = ref('');
+const storedHistory = localStorage.getItem('clockinHistory');
+const clockinHistory = ref<ClockinHistory>(
+  storedHistory ? JSON.parse(storedHistory) : {}
+);
+const dayOffDialog = ref(false);
+const dayoffReason = ref('');
+const dayOffDay = ref(NaN);
+const dayOffOptions = [
+  { label: '0 天', value: 0, color: 'grey' },
+  { label: '0.5 天', value: 0.5, color: 'red' },
+  { label: '1 天', value: 1, color: 'blue' },
+];
+const addDayOff = () => {
+  const record = clockinHistory.value[selectedDate.value];
+  if (record) {
+    record.dayOff = dayOffDay.value;
+    record.dayoffReason = dayoffReason.value;
   } else {
-    dayoffHistory.value.push({
-      month: selectedMonth,
-      dayOff: dayOffModel.value,
-    });
+    clockinHistory.value[selectedDate.value] = {
+      dayOff: dayOffDay.value,
+      dayoffReason: dayoffReason.value,
+    };
   }
-  localStorage.setItem('dayoffHistory', JSON.stringify(dayoffHistory.value));
-}
-function initializeTime() {
-  const index = clockinHistory.value.findIndex(
-    (record: { date: string }) => record.date === selectedDate.value
-  );
-  let nowHHMM = new Date().toLocaleTimeString([], {
+  localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
+  dayOffDialog.value = false;
+};
+const getDayOff = (date: string) => {
+  const record = clockinHistory.value[date];
+  return record?.dayOff;
+};
+const initializeTime = () => {
+  const record = clockinHistory.value[selectedDate.value];
+  const nowHHMM = new Date().toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   });
-  time.value = clockinHistory.value[index]?.time
-    ? clockinHistory.value[index].time
-    : nowHHMM;
-
-  time2.value = clockinHistory.value[index]?.time2
-    ? clockinHistory.value[index].time2
-    : clockinHistory.value[index]?.time
+  timein.value = record?.timein ? record.timein : nowHHMM;
+  timeout.value = record?.timeout
+    ? record.timeout
+    : record?.timein
     ? nowHHMM
     : '';
-}
-function onClickDay(data: { scope: { timestamp: { date: string } } }) {
+};
+const initializeDayOff = () => {
+  dayOffDialog.value = true;
+  const record = clockinHistory.value[selectedDate.value];
+  dayOffDay.value =
+    typeof record?.dayOff == 'number' && !isNaN(record.dayOff)
+      ? record.dayOff
+      : NaN;
+  dayoffReason.value = record?.dayoffReason ? record.dayoffReason : '';
+};
+const onClickDay = (data: { scope: { timestamp: { date: string } } }) => {
   selectedDate.value = data.scope.timestamp.date;
   initializeTime();
-}
-const clockinHistoryMap = computed(() => {
-  const map = {};
-  clockinHistory.value.forEach((record: { date: string | number }) => {
-    (map[record.date] = map[record.date] || []).push(record);
-  });
-  return map;
-});
-function saveTime() {
-  const index = clockinHistory.value.findIndex(
-    (record: { date: string }) => record.date === selectedDate.value
-  );
-  if (index > -1) {
-    clockinHistory.value.splice(index, 1);
-  }
-  clockinHistory.value.push({
-    date: selectedDate.value,
-    time: time.value,
-    time2: time2.value,
-  });
+};
+const saveTime = () => {
+  clockinHistory.value[selectedDate.value] = {
+    timein: timein.value,
+    timeout: timeout.value,
+  };
   localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
-}
-function clearTime() {
-  const index = clockinHistory.value.findIndex(
-    (record: { date: string }) => record.date === selectedDate.value
-  );
-  if (index > -1) {
-    clockinHistory.value.splice(index, 1);
-  }
+};
+const clearDayOff = () => {
+  const record = clockinHistory.value[selectedDate.value];
+  delete record['dayOff'];
+  delete record['dayoffReason'];
+  localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
+};
+const clearTime = () => {
+  const record = clockinHistory.value[selectedDate.value];
+  delete record['timein'];
+  delete record['timeout'];
   localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
   initializeTime();
-}
-const accmulatedHours = computed(() => {
-  let total = 0;
-  clockinHistory.value.forEach((record) => {
-    if (
-      record.date.substring(0, 7) === selectedMonth.value &&
-      record.time &&
-      record.time2
-    ) {
-      const time = record.time.split(':');
-      const time2 = record.time2.split(':');
-      total += (parseInt(time2[0]) - parseInt(time[0])) * 60;
-      total += parseInt(time2[1]) - parseInt(time[1]);
+};
+const monthClockinInfo = computed(() => {
+  const selectedMonth = selectedDate.value.substring(0, 7);
+  let clockinHours = 0;
+  let monthDayOff = 0;
+  for (const [date, record] of Object.entries(clockinHistory.value)) {
+    if (date.startsWith(selectedMonth)) {
+      if (record.timein && record.timeout) {
+        const timein = record.timein.split(':');
+        const timeout = record.timeout.split(':');
+        clockinHours += (parseInt(timeout[0]) - parseInt(timein[0])) * 60;
+        clockinHours += parseInt(timeout[1]) - parseInt(timein[1]);
+      }
+      if (record.dayOff) {
+        monthDayOff += record.dayOff;
+      }
     }
-  });
+  }
+  const totalHours = clockinHours + monthDayOff * 8 * 60;
   const remainingDays = getRemainingDaysInMonth();
-  total += dayOff.value * 8 * 60;
-  let remainingHours = (240 * 60 - total) / remainingDays / 60.0;
-  remainingHours = Math.round(remainingHours * 10) / 10;
+  const remainingHours = (240 * 60 - totalHours) / remainingDays / 60.0;
   const currentMonth = new Date().toISOString().substring(0, 7);
-  return currentMonth != selectedMonth.value
-    ? `${selectedMonth.value}：已请假 ${dayOffModel.value} 天，已打卡 ${
-        Math.round((total / 60) * 10) / 10
-      } 小时`
-    : `${selectedMonth.value}：已请假 ${dayOffModel.value} 天，已打卡 ${
-        Math.round((total / 60) * 10) / 10
-      } 小时，之后每天需打卡 ${Math.max(0, remainingHours)} 小时`;
+  return (
+    `${selectedMonth}：已请假 ${monthDayOff} 天，总打卡 ${(
+      totalHours / 60
+    ).toPrecision(4)} 小时` +
+    (currentMonth === selectedMonth
+      ? `，接下来的 ${remainingDays} 天每天需打卡 ${Math.max(
+          0,
+          remainingHours
+        ).toPrecision(3)} 小时`
+      : '')
+  );
 
   function getRemainingDaysInMonth() {
     const currentDate = new Date();
+    const today = currentDate.toISOString().substring(0, 10);
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth();
     const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     let remainingDays = 0;
-
     for (let day = currentDate.getDate() + 1; day <= lastDayOfMonth; day++) {
       const date = new Date(currentYear, currentMonth, day);
-      if (isWeekend(date)) {
+      if (date.getDay() === 0 || date.getDay() === 6) {
         continue;
       }
       remainingDays++;
     }
-    return remainingDays;
-  }
-
-  function isWeekend(date) {
-    const day = date.getDay();
-    return day === 0 || day === 6;
+    return clockinHistory.value[today]?.timeout
+      ? remainingDays
+      : remainingDays + 1;
   }
 });
 initializeTime();
@@ -241,9 +243,32 @@ defineOptions({
   justify-content: space-between;
   .calendar-wrapper {
     .calendar-button {
+      margin: 5px 0 10px 0;
       justify-content: center;
       display: flex;
-      margin-bottom: 10px;
+      > *:not(:first-child) {
+        margin-left: 10px;
+      }
+    }
+    .dot-dayoff {
+      position: absolute;
+      right: 2px;
+      top: -20px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .grey-dot {
+      @extend.dot-dayoff;
+      background-color: $grey;
+    }
+    .blue-dot {
+      @extend.dot-dayoff;
+      background-color: $blue-8;
+    }
+    .red-dot {
+      @extend.dot-dayoff;
+      background-color: $red;
     }
     .record-time {
       display: flex;
@@ -251,12 +276,12 @@ defineOptions({
       font-size: 12px;
       color: white;
     }
-    .bg-green {
-      background: #1976d2 !important;
+    .bg-blue {
+      background: $blue-8 !important;
     }
 
-    .bg-orange {
-      background: #f44336 !important;
+    .bg-red {
+      background: $red !important;
     }
   }
   .input-wrapper {
@@ -275,17 +300,12 @@ defineOptions({
       display: flex;
       justify-content: center;
     }
-    .slider-wrapper {
-      margin-left: 20px;
-      margin-right: 20px;
-      margin-top: 8px;
-      margin-bottom: -20px;
-    }
   }
   .notify {
+    margin: 0 10px 6px 10px;
     display: flex;
     justify-content: center;
-    font-size: 24px;
+    font-size: 22px;
     text-align: center;
   }
 }
@@ -293,11 +313,7 @@ defineOptions({
   min-width: 192px;
   max-width: 192px;
 }
-html,
-body,
-#app {
-  margin: 0;
-  padding: 0;
-  height: 100%;
+.q-dialog__inner.flex > .q-card {
+  margin-bottom: 20vh;
 }
 </style>
