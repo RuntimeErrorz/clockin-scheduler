@@ -2,13 +2,13 @@
   <div class="container">
     <div class="calendar-wrapper">
       <div class="calendar-button">
-        <q-btn no-caps class="button" color="red" @click="calendar.prev()">
+        <q-btn no-caps class="button" color="red" @click="calendar?.prev()">
           &lt; Prev
         </q-btn>
-        <q-btn no-caps class="button" @click="calendar.moveToToday()">
+        <q-btn no-caps class="button" @click="calendar?.moveToToday()">
           Today
         </q-btn>
-        <q-btn no-caps class="button" color="primary" @click="calendar.next()">
+        <q-btn no-caps class="button" color="primary" @click="calendar?.next()">
           Next &gt;
         </q-btn>
       </div>
@@ -84,8 +84,49 @@
 </template>
 
 <script setup lang="ts">
-import { today } from '@quasar/quasar-ui-qcalendar/src/index.js';
 import { computed, ref } from 'vue';
+
+// 日期和时间工具函数
+const dateUtils = {
+  // 获取今天的日期，格式为YYYY-MM-DD
+  today(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  },
+
+  // 格式化月份，格式为YYYY-MM
+  formatMonth(date: Date): string {
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    return `${year}-${month}`;
+  },
+
+  // 获取当前时间，格式为HH:MM
+  getCurrentTime(): string {
+    const now = new Date();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  },
+
+  // 计算两个时间之间的分钟差
+  calculateTimeDiff(timein: string, timeout: string): number {
+    const [inHour, inMin] = timein.split(':').map(Number);
+    const [outHour, outMin] = timeout.split(':').map(Number);
+    let minutesDiff = outHour * 60 + outMin - (inHour * 60 + inMin);
+    return minutesDiff;
+  },
+
+  isWorkDay(date: Date): boolean {
+    const day = date.getDay();
+    return day !== 0 && day !== 6;
+  },
+};
+
+// 类型定义
 type ClockinRecord = {
   timein?: string;
   timeout?: string;
@@ -97,8 +138,15 @@ type ClockinHistory = {
   [date: string]: ClockinRecord;
 };
 
-const calendar = ref(null);
-const selectedDate = ref(today());
+interface CalendarRef {
+  prev: () => void;
+  next: () => void;
+  moveToToday: () => void;
+}
+
+// 状态管理
+const calendar = ref<CalendarRef | null>(null);
+const selectedDate = ref(dateUtils.today());
 const timein = ref('');
 const timeout = ref('');
 const storedHistory = localStorage.getItem('clockinHistory');
@@ -113,6 +161,7 @@ const dayOffOptions = [
   { label: '0.5 天', value: 0.5, color: 'red' },
   { label: '1 天', value: 1, color: 'blue' },
 ];
+
 const addDayOff = () => {
   const record = clockinHistory.value[selectedDate.value];
   if (record) {
@@ -127,16 +176,16 @@ const addDayOff = () => {
   localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
   dayOffDialog.value = false;
 };
+
 const getDayOff = (date: string) => {
   const record = clockinHistory.value[date];
   return record?.dayOff;
 };
+
 const initializeTime = () => {
   const record = clockinHistory.value[selectedDate.value];
-  const nowHHMM = new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const nowHHMM = dateUtils.getCurrentTime();
+
   timein.value = record?.timein ? record.timein : nowHHMM;
   timeout.value = record?.timeout
     ? record.timeout
@@ -144,6 +193,7 @@ const initializeTime = () => {
     ? nowHHMM
     : '';
 };
+
 const initializeDayOff = () => {
   dayOffDialog.value = true;
   const record = clockinHistory.value[selectedDate.value];
@@ -153,83 +203,134 @@ const initializeDayOff = () => {
       : NaN;
   dayoffReason.value = record?.dayoffReason ? record.dayoffReason : '';
 };
+
 const onClickDay = (data: { scope: { timestamp: { date: string } } }) => {
   selectedDate.value = data.scope.timestamp.date;
   initializeTime();
 };
+
 const saveTime = () => {
+  const currentRecord = clockinHistory.value[selectedDate.value] || {};
   clockinHistory.value[selectedDate.value] = {
-    timein: timein.value,
-    timeout: timeout.value,
+    ...currentRecord, // 保留原有的所有字段
+    timein: timein.value, // 更新打卡时间
+    timeout: timeout.value, // 更新打卡时间
   };
+
   localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
 };
+
 const clearDayOff = () => {
   const record = clockinHistory.value[selectedDate.value];
-  delete record['dayOff'];
-  delete record['dayoffReason'];
-  localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
+  if (record) {
+    delete record['dayOff'];
+    delete record['dayoffReason'];
+    localStorage.setItem(
+      'clockinHistory',
+      JSON.stringify(clockinHistory.value)
+    );
+  }
 };
+
 const clearTime = () => {
   const record = clockinHistory.value[selectedDate.value];
-  delete record['timein'];
-  delete record['timeout'];
-  localStorage.setItem('clockinHistory', JSON.stringify(clockinHistory.value));
+  if (record) {
+    delete record['timein'];
+    delete record['timeout'];
+    localStorage.setItem(
+      'clockinHistory',
+      JSON.stringify(clockinHistory.value)
+    );
+  }
   initializeTime();
 };
-const monthClockinInfo = computed(() => {
-  const selectedMonth = selectedDate.value.substring(0, 7);
+
+// 计算剩余工作日数量
+const getRemainingDaysInMonth = () => {
+  const currentDate = new Date();
+  const today = dateUtils.today();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
+  const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  let remainingDays = 0;
+
+  // 检查当天是否应该计入剩余天数
+  const todayRecord = clockinHistory.value[today];
+  const isTodayCompleted = todayRecord?.timein && todayRecord?.timeout;
+
+  if (!isTodayCompleted) {
+    remainingDays++;
+  }
+
+  for (let day = currentDate.getDate() + 1; day <= lastDayOfMonth; day++) {
+    const date = new Date(currentYear, currentMonth, day);
+    if (!dateUtils.isWorkDay(date)) {
+      continue;
+    }
+    remainingDays++;
+  }
+  return remainingDays;
+};
+
+// 计算指定月份的打卡和休假信息
+const calculateMonthInfo = (monthStr: string) => {
   let clockinHours = 0;
   let monthDayOff = 0;
+
   for (const [date, record] of Object.entries(clockinHistory.value)) {
-    if (date.startsWith(selectedMonth)) {
+    if (date.startsWith(monthStr)) {
       if (record.timein && record.timeout) {
-        const timein = record.timein.split(':');
-        const timeout = record.timeout.split(':');
-        clockinHours += (parseInt(timeout[0]) - parseInt(timein[0])) * 60;
-        clockinHours += parseInt(timeout[1]) - parseInt(timein[1]);
+        clockinHours += dateUtils.calculateTimeDiff(
+          record.timein,
+          record.timeout
+        );
       }
       if (record.dayOff) {
         monthDayOff += record.dayOff;
       }
     }
   }
-  const totalHours = clockinHours + monthDayOff * 8 * 60;
+
+  return {
+    clockinHours,
+    monthDayOff,
+    totalHours: clockinHours + monthDayOff * 8 * 60,
+  };
+};
+
+// 计算属性
+const monthClockinInfo = computed(() => {
+  const selectedDateObj = new Date(selectedDate.value);
+  const selectedMonth = dateUtils.formatMonth(selectedDateObj);
+
+  const { monthDayOff, totalHours } = calculateMonthInfo(selectedMonth);
+
   const remainingDays = getRemainingDaysInMonth();
   const remainingHours = (240 * 60 - totalHours) / remainingDays / 60.0;
-  const currentMonth = new Date().toISOString().substring(0, 7);
+
+  const currentDate = new Date();
+  const currentMonth = dateUtils.formatMonth(currentDate);
+
+  console.log(
+    `当前月份：${currentMonth}，选中月份：${selectedMonth}，剩余天数：${remainingDays}，剩余小时：${remainingHours}`
+  );
+
   return (
     `${selectedMonth}：已请假 ${monthDayOff} 天，总打卡 ${(
       totalHours / 60
-    ).toPrecision(4)} 小时` +
+    ).toFixed(2)} 小时` +
     (currentMonth === selectedMonth
       ? `，接下来的 ${remainingDays} 天每天需打卡 ${Math.max(
           0,
           remainingHours
-        ).toPrecision(3)} 小时`
+        ).toFixed(2)} 小时`
       : '')
   );
-
-  function getRemainingDaysInMonth() {
-    const currentDate = new Date();
-    const today = currentDate.toISOString().substring(0, 10);
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth();
-    const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    let remainingDays = 0;
-    for (let day = currentDate.getDate() + 1; day <= lastDayOfMonth; day++) {
-      const date = new Date(currentYear, currentMonth, day);
-      if (date.getDay() === 0 || date.getDay() === 6) {
-        continue;
-      }
-      remainingDays++;
-    }
-    return clockinHistory.value[today]?.timeout
-      ? remainingDays
-      : remainingDays + 1;
-  }
 });
+
+// 初始化
 initializeTime();
+
 defineOptions({
   name: 'App',
 });
